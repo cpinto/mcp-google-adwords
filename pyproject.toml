@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "google-ads-mcp"
 version = "0.1.0"
-description = "MCP server for Google Ads Keyword Planning"
+description = "MCP server for Google Ads keyword planning, search campaign management, and reporting"
 requires-python = ">=3.11"
 dependencies = [
     "mcp[cli]>=1.2.0",

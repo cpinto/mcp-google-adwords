@@ -26,6 +26,12 @@ def format_number(n: int | float | None) -> str:
     return f"{n:,.0f}"
 
 
+def format_percent(value: float | None) -> str:
+    if value is None:
+        return "N/A"
+    return f"{value:.2%}"
+
+
 def format_keyword_ideas(results: list) -> str:
     if not results:
         return "No keyword ideas found."
@@ -120,4 +126,95 @@ def format_forecast(campaign_forecast, keyword_forecasts: list, keywords: list[s
                 f"| {micros_to_dollars(f.cost_micros)} |"
             )
 
+    return "\n".join(lines)
+
+
+def format_search_term_report(rows: list[dict]) -> str:
+    if not rows:
+        return "No search terms found for the selected date range."
+
+    lines = [
+        f"**Search term report ({len(rows)} rows)**\n",
+        "| Search Term | Campaign | Impressions | Clicks | CTR | Avg CPC | Cost | Conversions |",
+        "|-------------|----------|-------------|--------|-----|---------|------|-------------|",
+    ]
+
+    for row in rows:
+        lines.append(
+            f"| {row['search_term']} "
+            f"| {row['campaign_name']} "
+            f"| {format_number(row['impressions'])} "
+            f"| {format_number(row['clicks'])} "
+            f"| {format_percent(row['ctr'])} "
+            f"| {micros_to_dollars(row['average_cpc_micros'])} "
+            f"| {micros_to_dollars(row['cost_micros'])} "
+            f"| {row['conversions']:.2f} |"
+        )
+
+    return "\n".join(lines)
+
+
+def format_performance_report(rows: list[dict], level: str) -> str:
+    if not rows:
+        return f"No {level} performance rows found for the selected date range."
+
+    if level == "campaign":
+        lines = [
+            f"**Campaign performance ({len(rows)} rows)**\n",
+            "| Campaign | Status | Impressions | Clicks | CTR | Avg CPC | Cost | Conversions |",
+            "|----------|--------|-------------|--------|-----|---------|------|-------------|",
+        ]
+        for row in rows:
+            lines.append(
+                f"| {row['name']} "
+                f"| {row['status']} "
+                f"| {format_number(row['impressions'])} "
+                f"| {format_number(row['clicks'])} "
+                f"| {format_percent(row['ctr'])} "
+                f"| {micros_to_dollars(row['average_cpc_micros'])} "
+                f"| {micros_to_dollars(row['cost_micros'])} "
+                f"| {row['conversions']:.2f} |"
+            )
+        return "\n".join(lines)
+
+    if level == "ad_group":
+        lines = [
+            f"**Ad group performance ({len(rows)} rows)**\n",
+            "| Campaign | Ad Group | Status | Impressions | Clicks | CTR | Avg CPC | Cost | Conversions |",
+            "|----------|----------|--------|-------------|--------|-----|---------|------|-------------|",
+        ]
+        for row in rows:
+            lines.append(
+                f"| {row['campaign_name']} "
+                f"| {row['name']} "
+                f"| {row['status']} "
+                f"| {format_number(row['impressions'])} "
+                f"| {format_number(row['clicks'])} "
+                f"| {format_percent(row['ctr'])} "
+                f"| {micros_to_dollars(row['average_cpc_micros'])} "
+                f"| {micros_to_dollars(row['cost_micros'])} "
+                f"| {row['conversions']:.2f} |"
+            )
+        return "\n".join(lines)
+
+    lines = [
+        f"**Keyword performance ({len(rows)} rows)**\n",
+        "| Campaign | Ad Group | Keyword | Match Type | Status | Bid | Impressions | Clicks | CTR | Avg CPC | Cost | Conversions |",
+        "|----------|----------|---------|------------|--------|-----|-------------|--------|-----|---------|------|-------------|",
+    ]
+    for row in rows:
+        lines.append(
+            f"| {row['campaign_name']} "
+            f"| {row['ad_group_name']} "
+            f"| {row['keyword']} "
+            f"| {row['match_type']} "
+            f"| {row['status']} "
+            f"| {micros_to_dollars(row['bid_micros'])} "
+            f"| {format_number(row['impressions'])} "
+            f"| {format_number(row['clicks'])} "
+            f"| {format_percent(row['ctr'])} "
+            f"| {micros_to_dollars(row['average_cpc_micros'])} "
+            f"| {micros_to_dollars(row['cost_micros'])} "
+            f"| {row['conversions']:.2f} |"
+        )
     return "\n".join(lines)
