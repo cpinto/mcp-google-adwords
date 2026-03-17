@@ -5,6 +5,7 @@ __pycache__/
 dist/
 build/
 .env
+service_account.json
 .venv/
 *.egg
 .python-version
