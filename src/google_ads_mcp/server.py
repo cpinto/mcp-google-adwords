@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+import webbrowser
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import anyio
+from dotenv import find_dotenv, set_key
 from mcp.server.fastmcp import Context, FastMCP
 
 from .client import GoogleAdsMCPClient
@@ -50,16 +58,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+AUTH_EXPIRED_MSG = (
+    "**Authentication expired.** Your Google Ads OAuth refresh token is invalid or revoked.\n\n"
+    "Call the `reauthorize` tool to re-authenticate."
+)
+_TOKEN_URL = "https://oauth2.googleapis.com/token"
+_GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+_OAUTH_SCOPES = ["https://www.googleapis.com/auth/adwords"]
+
 
 @asynccontextmanager
 async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
-    """Initialize the Google Ads client once at startup."""
+    """Load config at startup; the Google Ads client is created lazily on first tool call."""
     logger.info("Initializing Google Ads MCP server...")
     try:
         config = GoogleAdsConfig.from_env()
-        client = GoogleAdsMCPClient(config)
-        logger.info("Google Ads client initialized (customer_id=%s)", config.customer_id)
-        yield {"client": client}
+        env_path = find_dotenv() or os.path.join(os.getcwd(), ".env")
+        logger.info("Config loaded (customer_id=%s)", config.customer_id)
+        yield {"config": config, "client": None, "env_path": env_path}
     except ValueError as error:
         logger.error("Configuration error: %s", error)
         raise
@@ -75,8 +91,157 @@ mcp = FastMCP(
 )
 
 
+def _is_auth_error(exc: Exception) -> bool:
+    """Check if an exception is an OAuth authentication error."""
+    error_str = str(exc).lower()
+    type_name = type(exc).__name__.lower()
+    return (
+        "invalid_grant" in error_str
+        or "token has been expired or revoked" in error_str
+        or "refresherror" in type_name
+    )
+
+
 def _client_from_context(ctx: Context) -> GoogleAdsMCPClient:
-    return ctx.request_context.lifespan_context["client"]
+    """Get or lazily create the Google Ads client. Raises RuntimeError if auth is expired."""
+    lifespan_ctx = ctx.request_context.lifespan_context
+    client = lifespan_ctx.get("client")
+    if client is not None:
+        return client
+
+    config = lifespan_ctx["config"]
+    new_client = GoogleAdsMCPClient(config)
+
+    # Verify credentials with a lightweight API call
+    try:
+        svc = new_client.client.get_service("CustomerService")
+        svc.list_accessible_customers()
+    except Exception as exc:
+        if _is_auth_error(exc):
+            raise RuntimeError(AUTH_EXPIRED_MSG) from exc
+        raise
+
+    lifespan_ctx["client"] = new_client
+    logger.info("Google Ads client initialized (customer_id=%s)", config.customer_id)
+    return new_client
+
+
+def _run_oauth_flow(client_id: str, client_secret: str) -> dict:
+    """Run the Google OAuth flow. Starts a local server on a random port, opens browser."""
+    auth_code = None
+
+    class CallbackHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            nonlocal auth_code
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            if "error" in query:
+                self.send_response(400)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(b"<h1>Authorization failed.</h1><p>You can close this tab.</p>")
+                return
+            if "code" in query:
+                auth_code = query["code"][0]
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(
+                    b"<h1>Authorization successful!</h1><p>You can close this tab.</p>"
+                )
+
+        def log_message(self, format, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), CallbackHandler)
+    port = server.server_address[1]
+    redirect_uri = f"http://127.0.0.1:{port}/callback"
+
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "scope": " ".join(_OAUTH_SCOPES),
+        "response_type": "code",
+        "access_type": "offline",
+        "prompt": "consent",
+    }
+    auth_url = f"{_GOOGLE_AUTH_URL}?{urllib.parse.urlencode(params)}"
+
+    logger.info("Opening browser for OAuth (port %d)", port)
+    logger.info("Auth URL: %s", auth_url)
+    webbrowser.open(auth_url)
+
+    server.timeout = 120
+    server.handle_request()
+    server.server_close()
+
+    if not auth_code:
+        return {"error": "No authorization code received (timed out or user denied access)."}
+
+    # Exchange code for tokens
+    data = urllib.parse.urlencode({
+        "code": auth_code,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "redirect_uri": redirect_uri,
+        "grant_type": "authorization_code",
+    }).encode()
+    req = urllib.request.Request(_TOKEN_URL, data=data)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            tokens = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        return {"error": f"Token exchange failed: {exc.read().decode()}"}
+
+    refresh_token = tokens.get("refresh_token")
+    if not refresh_token:
+        return {"error": f"No refresh token in response: {json.dumps(tokens)}"}
+
+    return {"refresh_token": refresh_token}
+
+
+@mcp.tool()
+async def check_auth_status(ctx: Context) -> str:
+    """Check whether the current Google Ads credentials are valid."""
+    try:
+        _client_from_context(ctx)
+        return "**Authenticated.** Google Ads credentials are valid."
+    except RuntimeError as exc:
+        return str(exc)
+
+
+@mcp.tool()
+async def reauthorize(ctx: Context) -> str:
+    """Re-authenticate with Google Ads by completing an OAuth flow in the browser.
+
+    Use this when other tools report that the authentication token has expired.
+    A browser window will open for you to authorize access. The token is saved
+    automatically so subsequent tool calls and server restarts will use it.
+    """
+    lifespan_ctx = ctx.request_context.lifespan_context
+    config = lifespan_ctx["config"]
+
+    result = await anyio.to_thread.run_sync(
+        lambda: _run_oauth_flow(config.client_id, config.client_secret)
+    )
+
+    if "error" in result:
+        return f"**Reauthorization failed:** {result['error']}"
+
+    new_token = result["refresh_token"]
+
+    # Persist to .env file
+    env_path = lifespan_ctx["env_path"]
+    set_key(env_path, "GOOGLE_ADS_REFRESH_TOKEN", new_token)
+    logger.info("Refresh token updated in %s", env_path)
+
+    # Update in-memory config and reset cached client
+    config.refresh_token = new_token
+    lifespan_ctx["client"] = None
+
+    return (
+        "**Reauthorization successful!** The refresh token has been updated.\n\n"
+        "You can now use Google Ads tools."
+    )
 
 
 @mcp.tool()
