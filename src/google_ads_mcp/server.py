@@ -202,9 +202,11 @@ def _run_oauth_flow(client_id: str, client_secret: str) -> dict:
 @mcp.tool()
 async def check_auth_status(ctx: Context) -> str:
     """Check whether the current Google Ads credentials are valid."""
+    config = ctx.request_context.lifespan_context["config"]
+    auth_type = config.auth_type
     try:
         _client_from_context(ctx)
-        return "**Authenticated.** Google Ads credentials are valid."
+        return f"**Authenticated** (via {auth_type}). Google Ads credentials are valid."
     except RuntimeError as exc:
         return str(exc)
 
@@ -219,6 +221,13 @@ async def reauthorize(ctx: Context) -> str:
     """
     lifespan_ctx = ctx.request_context.lifespan_context
     config = lifespan_ctx["config"]
+
+    if config.auth_type == "service_account":
+        return (
+            "**Not needed.** This server is using service account authentication, "
+            "which does not require token refresh. If you are seeing auth errors, "
+            "check that the service account has the correct permissions."
+        )
 
     result = await anyio.to_thread.run_sync(
         lambda: _run_oauth_flow(config.client_id, config.client_secret)
