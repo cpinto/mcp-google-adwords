@@ -94,6 +94,17 @@ class KeywordUpdateInput(MCPModel):
     new_match_type: KeywordMatchType | None = None
 
 
+class NegativeKeywordInput(MCPModel):
+    text: str = Field(min_length=1)
+    match_type: KeywordMatchType | None = None
+
+
+class NegativeKeywordUpdateInput(MCPModel):
+    criterion: str = Field(min_length=1)
+    new_text: str | None = Field(default=None, min_length=1)
+    new_match_type: KeywordMatchType | None = None
+
+
 ServedAssetField = Literal[
     "HEADLINE_1",
     "HEADLINE_2",
@@ -227,11 +238,53 @@ class KeywordMutationResult(MCPModel):
     replaced: list[ResourceSummary] = Field(default_factory=list)
 
 
+class NegativeKeywordSummary(MCPModel):
+    resource_name: str
+    id: str | None = None
+    text: str | None = None
+    match_type: KeywordMatchType | None = None
+    status: KeywordStatus | None = None
+
+
+class NegativeKeywordMutationResult(MCPModel):
+    campaign: ResourceSummary | None = None
+    ad_group: ResourceSummary | None = None
+    created: list[NegativeKeywordSummary] = Field(default_factory=list)
+    updated: list[NegativeKeywordSummary] = Field(default_factory=list)
+    removed: list[str] = Field(default_factory=list)
+    replaced: list[NegativeKeywordSummary] = Field(default_factory=list)
+
+
+class NegativeKeywordListResult(MCPModel):
+    campaign: ResourceSummary | None = None
+    ad_group: ResourceSummary | None = None
+    shared_set: ResourceSummary | None = None
+    criteria: list[NegativeKeywordSummary] = Field(default_factory=list)
+
+
 class SharedNegativeListMutationResult(MCPModel):
     shared_set: ResourceSummary | None = None
     shared_criteria: list[ResourceSummary] = Field(default_factory=list)
     removed: list[str] = Field(default_factory=list)
     campaign_shared_sets: list[ResourceSummary] = Field(default_factory=list)
+
+
+class SharedNegativeKeywordListSummary(MCPModel):
+    shared_set: ResourceSummary
+    scope: Literal["CAMPAIGN", "ACCOUNT"] | None = None
+    keyword_count: int = 0
+    campaign_count: int = 0
+    account_level_attached: bool = False
+
+
+class SharedNegativeKeywordListsResult(MCPModel):
+    shared_sets: list[SharedNegativeKeywordListSummary] = Field(default_factory=list)
+
+
+class AccountNegativeKeywordListResult(MCPModel):
+    shared_set: ResourceSummary | None = None
+    customer_negative_criterion: ResourceSummary | None = None
+    removed: list[str] = Field(default_factory=list)
 
 
 class AdMutationResult(MCPModel):

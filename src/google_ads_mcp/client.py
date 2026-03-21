@@ -17,6 +17,7 @@ from google.ads.googleads.v23.common.types import (
     KeywordInfo,
     LocationInfo,
     ManualCpc,
+    NegativeKeywordListInfo,
     ResponsiveSearchAdInfo,
     SitelinkAsset,
     StructuredSnippetAsset,
@@ -56,6 +57,7 @@ from .models import (
     AdGroupMutationResult,
     AdScheduleEntryInput,
     AdTextAssetInput,
+    AccountNegativeKeywordListResult,
     BiddingStrategyInput,
     CallAssetInput,
     CalloutAssetInput,
@@ -69,10 +71,17 @@ from .models import (
     KeywordInput,
     KeywordMutationResult,
     KeywordUpdateInput,
+    NegativeKeywordInput,
+    NegativeKeywordListResult,
+    NegativeKeywordMutationResult,
+    NegativeKeywordSummary,
+    NegativeKeywordUpdateInput,
     NetworkSettingsInput,
     ResourceSummary,
     ResponsiveSearchAdInput,
     SharedNegativeListMutationResult,
+    SharedNegativeKeywordListsResult,
+    SharedNegativeKeywordListSummary,
     SitelinkAssetInput,
     StructuredSnippetAssetInput,
     TargetingMutationResult,
@@ -189,6 +198,22 @@ class GoogleAdsMCPClient:
             id=self._extract_id(resource_name),
             status=status,
             name=name,
+        )
+
+    def _negative_keyword_summary(
+        self,
+        resource_name: str,
+        *,
+        text: str | None = None,
+        match_type: str | None = None,
+        status: str | None = None,
+    ) -> NegativeKeywordSummary:
+        return NegativeKeywordSummary(
+            resource_name=resource_name,
+            id=self._extract_id(resource_name),
+            text=text,
+            match_type=match_type,
+            status=status,
         )
 
     def _apply_network_settings(self, campaign: Any, settings: NetworkSettingsInput, mask_paths: list[str] | None = None):
@@ -390,6 +415,107 @@ class GoogleAdsMCPClient:
         if not rows:
             raise ValueError(f"Keyword criterion not found: {criterion_resource_name}")
         return rows[0]
+
+    def _campaign_negative_keyword_rows(self, campaign_resource_name: str) -> list[Any]:
+        return self._search(
+            "SELECT campaign_criterion.resource_name, "
+            "campaign_criterion.status, "
+            "campaign_criterion.keyword.text, "
+            "campaign_criterion.keyword.match_type "
+            "FROM campaign_criterion "
+            f"WHERE campaign.resource_name = {self._quote(self._campaign_resource(campaign_resource_name))} "
+            "AND campaign_criterion.type = KEYWORD "
+            "AND campaign_criterion.negative = TRUE"
+        )
+
+    def _campaign_negative_keyword_details(self, criterion_resource_name: str) -> Any:
+        rows = self._search(
+            "SELECT campaign.resource_name, "
+            "campaign_criterion.resource_name, "
+            "campaign_criterion.status, "
+            "campaign_criterion.keyword.text, "
+            "campaign_criterion.keyword.match_type "
+            "FROM campaign_criterion "
+            f"WHERE campaign_criterion.resource_name = {self._quote(criterion_resource_name)} "
+            "AND campaign_criterion.type = KEYWORD "
+            "AND campaign_criterion.negative = TRUE "
+            "LIMIT 1"
+        )
+        if not rows:
+            raise ValueError(f"Campaign negative keyword not found: {criterion_resource_name}")
+        return rows[0]
+
+    def _ad_group_negative_keyword_rows(self, ad_group_resource_name: str) -> list[Any]:
+        return self._search(
+            "SELECT ad_group_criterion.resource_name, "
+            "ad_group_criterion.status, "
+            "ad_group_criterion.keyword.text, "
+            "ad_group_criterion.keyword.match_type "
+            "FROM ad_group_criterion "
+            f"WHERE ad_group.resource_name = {self._quote(self._ad_group_resource(ad_group_resource_name))} "
+            "AND ad_group_criterion.type = KEYWORD "
+            "AND ad_group_criterion.negative = TRUE"
+        )
+
+    def _ad_group_negative_keyword_details(self, criterion_resource_name: str) -> Any:
+        rows = self._search(
+            "SELECT ad_group.resource_name, "
+            "ad_group_criterion.resource_name, "
+            "ad_group_criterion.status, "
+            "ad_group_criterion.keyword.text, "
+            "ad_group_criterion.keyword.match_type "
+            "FROM ad_group_criterion "
+            f"WHERE ad_group_criterion.resource_name = {self._quote(criterion_resource_name)} "
+            "AND ad_group_criterion.type = KEYWORD "
+            "AND ad_group_criterion.negative = TRUE "
+            "LIMIT 1"
+        )
+        if not rows:
+            raise ValueError(f"Ad group negative keyword not found: {criterion_resource_name}")
+        return rows[0]
+
+    def _shared_set_summary(self, shared_set_resource_name: str) -> ResourceSummary:
+        rows = self._search(
+            "SELECT shared_set.resource_name, shared_set.name, shared_set.status "
+            "FROM shared_set "
+            f"WHERE shared_set.resource_name = {self._quote(self._shared_set_resource(shared_set_resource_name))} "
+            "LIMIT 1"
+        )
+        if not rows:
+            return self._resource_summary(self._shared_set_resource(shared_set_resource_name))
+        row = rows[0].shared_set
+        return self._resource_summary(
+            row.resource_name,
+            status=getattr(row.status, "name", None),
+            name=getattr(row, "name", None),
+        )
+
+    def _shared_set_details(self, shared_set_resource_name: str) -> Any:
+        rows = self._search(
+            "SELECT shared_set.resource_name, shared_set.name, shared_set.status, shared_set.type "
+            "FROM shared_set "
+            f"WHERE shared_set.resource_name = {self._quote(self._shared_set_resource(shared_set_resource_name))} "
+            "LIMIT 1"
+        )
+        if not rows:
+            raise ValueError(f"Shared set not found: {self._shared_set_resource(shared_set_resource_name)}")
+        return rows[0].shared_set
+
+    def _account_negative_keyword_list_state(self) -> tuple[ResourceSummary | None, ResourceSummary | None]:
+        rows = self._search(
+            "SELECT customer_negative_criterion.resource_name, "
+            "customer_negative_criterion.negative_keyword_list.shared_set "
+            "FROM customer_negative_criterion "
+            "WHERE customer_negative_criterion.type = NEGATIVE_KEYWORD_LIST "
+            "LIMIT 1"
+        )
+        if not rows:
+            return None, None
+
+        row = rows[0].customer_negative_criterion
+        shared_set = self._shared_set_summary(row.negative_keyword_list.shared_set)
+        customer_negative_criterion = self._resource_summary(row.resource_name)
+        return shared_set, customer_negative_criterion
 
     def _ad_group_ad_details(self, ad_group_ad_resource_name: str) -> Any:
         rows = self._search(
@@ -750,6 +876,180 @@ class GoogleAdsMCPClient:
         except GoogleAdsException as ex:
             _raise_google_ads_error(ex)
 
+    def list_negative_keywords_in_campaign(self, campaign: str) -> NegativeKeywordListResult:
+        try:
+            campaign_resource = self._campaign_resource(campaign)
+            rows = self._campaign_negative_keyword_rows(campaign_resource)
+            return NegativeKeywordListResult(
+                campaign=self._resource_summary(campaign_resource),
+                criteria=[
+                    self._negative_keyword_summary(
+                        row.campaign_criterion.resource_name,
+                        text=row.campaign_criterion.keyword.text,
+                        match_type=row.campaign_criterion.keyword.match_type.name,
+                        status=row.campaign_criterion.status.name,
+                    )
+                    for row in rows
+                ],
+            )
+        except GoogleAdsException as ex:
+            _raise_google_ads_error(ex)
+
+    def add_negative_keywords_to_campaign(
+        self,
+        campaign: str,
+        keywords: list[NegativeKeywordInput],
+        default_match_type: str = "BROAD",
+    ) -> NegativeKeywordMutationResult:
+        try:
+            campaign_resource = self._campaign_resource(campaign)
+            operations: list[Any] = []
+            summaries: list[tuple[str, str]] = []
+
+            for keyword in keywords:
+                resolved_match_type = (keyword.match_type or default_match_type).upper()
+                criterion = self.client.get_type("CampaignCriterion")
+                criterion.campaign = campaign_resource
+                criterion.negative = True
+                criterion.status = campaign_criterion_status.CampaignCriterionStatusEnum.CampaignCriterionStatus.ENABLED
+                criterion.keyword = KeywordInfo(
+                    text=keyword.text,
+                    match_type=self._enum_value(
+                        keyword_match_type.KeywordMatchTypeEnum.KeywordMatchType,
+                        resolved_match_type,
+                        "negative keyword match type",
+                    ),
+                )
+
+                op = self.client.get_type("CampaignCriterionOperation")
+                op.create = criterion
+                operations.append(op)
+                summaries.append((keyword.text, resolved_match_type))
+
+            created: list[NegativeKeywordSummary] = []
+            if operations:
+                response = self._mutate(
+                    "CampaignCriterionService",
+                    "MutateCampaignCriteriaRequest",
+                    "mutate_campaign_criteria",
+                    operations,
+                )
+                created = [
+                    self._negative_keyword_summary(
+                        result.resource_name,
+                        text=summaries[index][0],
+                        match_type=summaries[index][1],
+                        status="ENABLED",
+                    )
+                    for index, result in enumerate(response.results)
+                ]
+
+            return NegativeKeywordMutationResult(
+                campaign=self._resource_summary(campaign_resource),
+                created=created,
+            )
+        except GoogleAdsException as ex:
+            _raise_google_ads_error(ex)
+
+    def update_negative_keywords_in_campaign(
+        self,
+        updates: list[NegativeKeywordUpdateInput],
+    ) -> NegativeKeywordMutationResult:
+        try:
+            replacement_creates: list[Any] = []
+            replacement_removes: list[str] = []
+            replacement_summaries: list[tuple[str, str]] = []
+
+            for update in updates:
+                resource_name = self._require_resource_name(update.criterion, "negative keyword criterion")
+                if update.new_text is None and update.new_match_type is None:
+                    raise ValueError(
+                        "Campaign negative keyword updates require new_text or new_match_type. "
+                        "Google Ads does not allow status updates for excluded criteria."
+                    )
+
+                row = self._campaign_negative_keyword_details(resource_name)
+                resolved_match_type = (
+                    update.new_match_type or row.campaign_criterion.keyword.match_type.name
+                ).upper()
+
+                criterion = self.client.get_type("CampaignCriterion")
+                criterion.campaign = row.campaign.resource_name
+                criterion.negative = True
+                criterion.status = campaign_criterion_status.CampaignCriterionStatusEnum.CampaignCriterionStatus.ENABLED
+                criterion.keyword = KeywordInfo(
+                    text=update.new_text or row.campaign_criterion.keyword.text,
+                    match_type=self._enum_value(
+                        keyword_match_type.KeywordMatchTypeEnum.KeywordMatchType,
+                        resolved_match_type,
+                        "negative keyword match type",
+                    ),
+                )
+
+                create_op = self.client.get_type("CampaignCriterionOperation")
+                create_op.create = criterion
+                replacement_creates.append(create_op)
+                replacement_removes.append(resource_name)
+                replacement_summaries.append((criterion.keyword.text, resolved_match_type))
+
+            replaced: list[NegativeKeywordSummary] = []
+            if replacement_removes:
+                remove_ops: list[Any] = []
+                for resource_name in replacement_removes:
+                    op = self.client.get_type("CampaignCriterionOperation")
+                    op.remove = resource_name
+                    remove_ops.append(op)
+                self._mutate(
+                    "CampaignCriterionService",
+                    "MutateCampaignCriteriaRequest",
+                    "mutate_campaign_criteria",
+                    remove_ops,
+                )
+                create_response = self._mutate(
+                    "CampaignCriterionService",
+                    "MutateCampaignCriteriaRequest",
+                    "mutate_campaign_criteria",
+                    replacement_creates,
+                )
+                replaced = [
+                    self._negative_keyword_summary(
+                        result.resource_name,
+                        text=replacement_summaries[index][0],
+                        match_type=replacement_summaries[index][1],
+                        status="ENABLED",
+                    )
+                    for index, result in enumerate(create_response.results)
+                ]
+
+            return NegativeKeywordMutationResult(replaced=replaced)
+        except GoogleAdsException as ex:
+            _raise_google_ads_error(ex)
+
+    def remove_negative_keywords_from_campaign(
+        self,
+        negative_keyword_criteria: list[str],
+    ) -> NegativeKeywordMutationResult:
+        try:
+            operations: list[Any] = []
+            removed: list[str] = []
+            for criterion in negative_keyword_criteria:
+                resource_name = self._require_resource_name(criterion, "negative keyword criterion")
+                op = self.client.get_type("CampaignCriterionOperation")
+                op.remove = resource_name
+                operations.append(op)
+                removed.append(resource_name)
+
+            if operations:
+                self._mutate(
+                    "CampaignCriterionService",
+                    "MutateCampaignCriteriaRequest",
+                    "mutate_campaign_criteria",
+                    operations,
+                )
+            return NegativeKeywordMutationResult(removed=removed)
+        except GoogleAdsException as ex:
+            _raise_google_ads_error(ex)
+
     def create_ad_group(
         self,
         campaign: str,
@@ -1018,11 +1318,198 @@ class GoogleAdsMCPClient:
         except GoogleAdsException as ex:
             _raise_google_ads_error(ex)
 
-    def create_shared_negative_keyword_list(self, name: str) -> SharedNegativeListMutationResult:
+    def list_negative_keywords_in_ad_group(self, ad_group: str) -> NegativeKeywordListResult:
         try:
+            ad_group_resource = self._ad_group_resource(ad_group)
+            rows = self._ad_group_negative_keyword_rows(ad_group_resource)
+            return NegativeKeywordListResult(
+                ad_group=self._resource_summary(ad_group_resource),
+                criteria=[
+                    self._negative_keyword_summary(
+                        row.ad_group_criterion.resource_name,
+                        text=row.ad_group_criterion.keyword.text,
+                        match_type=row.ad_group_criterion.keyword.match_type.name,
+                        status=row.ad_group_criterion.status.name,
+                    )
+                    for row in rows
+                ],
+            )
+        except GoogleAdsException as ex:
+            _raise_google_ads_error(ex)
+
+    def add_negative_keywords_to_ad_group(
+        self,
+        ad_group: str,
+        keywords: list[NegativeKeywordInput],
+        default_match_type: str = "BROAD",
+    ) -> NegativeKeywordMutationResult:
+        try:
+            ad_group_resource = self._ad_group_resource(ad_group)
+            operations: list[Any] = []
+            summaries: list[tuple[str, str]] = []
+
+            for keyword in keywords:
+                resolved_match_type = (keyword.match_type or default_match_type).upper()
+                criterion = self.client.get_type("AdGroupCriterion")
+                criterion.ad_group = ad_group_resource
+                criterion.negative = True
+                criterion.status = ad_group_criterion_status.AdGroupCriterionStatusEnum.AdGroupCriterionStatus.ENABLED
+                criterion.keyword = KeywordInfo(
+                    text=keyword.text,
+                    match_type=self._enum_value(
+                        keyword_match_type.KeywordMatchTypeEnum.KeywordMatchType,
+                        resolved_match_type,
+                        "negative keyword match type",
+                    ),
+                )
+
+                op = self.client.get_type("AdGroupCriterionOperation")
+                op.create = criterion
+                operations.append(op)
+                summaries.append((keyword.text, resolved_match_type))
+
+            created: list[NegativeKeywordSummary] = []
+            if operations:
+                response = self._mutate(
+                    "AdGroupCriterionService",
+                    "MutateAdGroupCriteriaRequest",
+                    "mutate_ad_group_criteria",
+                    operations,
+                )
+                created = [
+                    self._negative_keyword_summary(
+                        result.resource_name,
+                        text=summaries[index][0],
+                        match_type=summaries[index][1],
+                        status="ENABLED",
+                    )
+                    for index, result in enumerate(response.results)
+                ]
+
+            return NegativeKeywordMutationResult(
+                ad_group=self._resource_summary(ad_group_resource),
+                created=created,
+            )
+        except GoogleAdsException as ex:
+            _raise_google_ads_error(ex)
+
+    def update_negative_keywords_in_ad_group(
+        self,
+        updates: list[NegativeKeywordUpdateInput],
+    ) -> NegativeKeywordMutationResult:
+        try:
+            replacement_creates: list[Any] = []
+            replacement_removes: list[str] = []
+            replacement_summaries: list[tuple[str, str]] = []
+
+            for update in updates:
+                resource_name = self._require_resource_name(update.criterion, "negative keyword criterion")
+                if update.new_text is None and update.new_match_type is None:
+                    raise ValueError(
+                        "Ad group negative keyword updates require new_text or new_match_type. "
+                        "Google Ads does not allow status updates for excluded criteria."
+                    )
+
+                row = self._ad_group_negative_keyword_details(resource_name)
+                resolved_match_type = (
+                    update.new_match_type or row.ad_group_criterion.keyword.match_type.name
+                ).upper()
+
+                criterion = self.client.get_type("AdGroupCriterion")
+                criterion.ad_group = row.ad_group.resource_name
+                criterion.negative = True
+                criterion.status = ad_group_criterion_status.AdGroupCriterionStatusEnum.AdGroupCriterionStatus.ENABLED
+                criterion.keyword = KeywordInfo(
+                    text=update.new_text or row.ad_group_criterion.keyword.text,
+                    match_type=self._enum_value(
+                        keyword_match_type.KeywordMatchTypeEnum.KeywordMatchType,
+                        resolved_match_type,
+                        "negative keyword match type",
+                    ),
+                )
+
+                create_op = self.client.get_type("AdGroupCriterionOperation")
+                create_op.create = criterion
+                replacement_creates.append(create_op)
+                replacement_removes.append(resource_name)
+                replacement_summaries.append((criterion.keyword.text, resolved_match_type))
+
+            replaced: list[NegativeKeywordSummary] = []
+            if replacement_removes:
+                remove_ops: list[Any] = []
+                for resource_name in replacement_removes:
+                    op = self.client.get_type("AdGroupCriterionOperation")
+                    op.remove = resource_name
+                    remove_ops.append(op)
+                self._mutate(
+                    "AdGroupCriterionService",
+                    "MutateAdGroupCriteriaRequest",
+                    "mutate_ad_group_criteria",
+                    remove_ops,
+                )
+                create_response = self._mutate(
+                    "AdGroupCriterionService",
+                    "MutateAdGroupCriteriaRequest",
+                    "mutate_ad_group_criteria",
+                    replacement_creates,
+                )
+                replaced = [
+                    self._negative_keyword_summary(
+                        result.resource_name,
+                        text=replacement_summaries[index][0],
+                        match_type=replacement_summaries[index][1],
+                        status="ENABLED",
+                    )
+                    for index, result in enumerate(create_response.results)
+                ]
+
+            return NegativeKeywordMutationResult(replaced=replaced)
+        except GoogleAdsException as ex:
+            _raise_google_ads_error(ex)
+
+    def remove_negative_keywords_from_ad_group(
+        self,
+        negative_keyword_criteria: list[str],
+    ) -> NegativeKeywordMutationResult:
+        try:
+            operations: list[Any] = []
+            removed: list[str] = []
+            for criterion in negative_keyword_criteria:
+                resource_name = self._require_resource_name(criterion, "negative keyword criterion")
+                op = self.client.get_type("AdGroupCriterionOperation")
+                op.remove = resource_name
+                operations.append(op)
+                removed.append(resource_name)
+
+            if operations:
+                self._mutate(
+                    "AdGroupCriterionService",
+                    "MutateAdGroupCriteriaRequest",
+                    "mutate_ad_group_criteria",
+                    operations,
+                )
+            return NegativeKeywordMutationResult(removed=removed)
+        except GoogleAdsException as ex:
+            _raise_google_ads_error(ex)
+
+    def create_shared_negative_keyword_list(
+        self,
+        name: str,
+        *,
+        scope: str = "CAMPAIGN",
+    ) -> SharedNegativeListMutationResult:
+        try:
+            scope_value = scope.upper()
             shared_set = self.client.get_type("SharedSet")
             shared_set.name = name
-            shared_set.type_ = shared_set_type.SharedSetTypeEnum.SharedSetType.NEGATIVE_KEYWORDS
+            if scope_value == "CAMPAIGN":
+                shared_set.type_ = shared_set_type.SharedSetTypeEnum.SharedSetType.NEGATIVE_KEYWORDS
+            elif scope_value == "ACCOUNT":
+                shared_set.type_ = (
+                    shared_set_type.SharedSetTypeEnum.SharedSetType.ACCOUNT_LEVEL_NEGATIVE_KEYWORDS
+                )
+            else:
+                raise ValueError(f"Unsupported shared negative keyword list scope: {scope}")
             shared_set.status = shared_set_status.SharedSetStatusEnum.SharedSetStatus.ENABLED
 
             op = self.client.get_type("SharedSetOperation")
@@ -1073,20 +1560,108 @@ class GoogleAdsMCPClient:
         except GoogleAdsException as ex:
             _raise_google_ads_error(ex)
 
+    def list_shared_negative_keyword_lists(self) -> SharedNegativeKeywordListsResult:
+        try:
+            rows = self._search(
+                "SELECT shared_set.resource_name, shared_set.name, shared_set.status, shared_set.type "
+                "FROM shared_set "
+                "WHERE shared_set.type IN (NEGATIVE_KEYWORDS, ACCOUNT_LEVEL_NEGATIVE_KEYWORDS)"
+            )
+            shared_sets: list[SharedNegativeKeywordListSummary] = []
+            for row in rows:
+                shared_set_summary = self._resource_summary(
+                    row.shared_set.resource_name,
+                    status=row.shared_set.status.name,
+                    name=row.shared_set.name,
+                )
+                shared_set_resource = row.shared_set.resource_name
+                keyword_count = len(
+                    self._search(
+                        "SELECT shared_criterion.resource_name "
+                        "FROM shared_criterion "
+                        f"WHERE shared_criterion.shared_set = {self._quote(shared_set_resource)} "
+                        "AND shared_criterion.type = KEYWORD"
+                    )
+                )
+                campaign_count = len(
+                    self._search(
+                        "SELECT campaign_shared_set.resource_name "
+                        "FROM campaign_shared_set "
+                        f"WHERE campaign_shared_set.shared_set = {self._quote(shared_set_resource)} "
+                        "AND campaign_shared_set.status = ENABLED"
+                    )
+                )
+                account_level_attached = bool(
+                    self._search(
+                        "SELECT customer_negative_criterion.resource_name "
+                        "FROM customer_negative_criterion "
+                        "WHERE customer_negative_criterion.type = NEGATIVE_KEYWORD_LIST "
+                        f"AND customer_negative_criterion.negative_keyword_list.shared_set = {self._quote(shared_set_resource)} "
+                        "LIMIT 1"
+                    )
+                )
+                shared_sets.append(
+                    SharedNegativeKeywordListSummary(
+                        shared_set=shared_set_summary,
+                        scope=(
+                            "ACCOUNT"
+                            if row.shared_set.type.name == "ACCOUNT_LEVEL_NEGATIVE_KEYWORDS"
+                            else "CAMPAIGN"
+                        ),
+                        keyword_count=keyword_count,
+                        campaign_count=campaign_count,
+                        account_level_attached=account_level_attached,
+                    )
+                )
+            return SharedNegativeKeywordListsResult(shared_sets=shared_sets)
+        except GoogleAdsException as ex:
+            _raise_google_ads_error(ex)
+
+    def list_keywords_in_shared_negative_list(self, shared_set: str) -> NegativeKeywordListResult:
+        try:
+            shared_set_resource = self._shared_set_resource(shared_set)
+            rows = self._search(
+                "SELECT shared_criterion.resource_name, "
+                "shared_criterion.keyword.text, "
+                "shared_criterion.keyword.match_type "
+                "FROM shared_criterion "
+                f"WHERE shared_criterion.shared_set = {self._quote(shared_set_resource)} "
+                "AND shared_criterion.type = KEYWORD"
+            )
+            return NegativeKeywordListResult(
+                shared_set=self._shared_set_summary(shared_set_resource),
+                criteria=[
+                    self._negative_keyword_summary(
+                        row.shared_criterion.resource_name,
+                        text=row.shared_criterion.keyword.text,
+                        match_type=row.shared_criterion.keyword.match_type.name,
+                    )
+                    for row in rows
+                ],
+            )
+        except GoogleAdsException as ex:
+            _raise_google_ads_error(ex)
+
     def add_keywords_to_shared_negative_list(
         self,
         shared_set: str,
         keywords: list[str],
+        default_match_type: str = "BROAD",
     ) -> SharedNegativeListMutationResult:
         try:
             shared_set_resource = self._shared_set_resource(shared_set)
             operations: list[Any] = []
+            resolved_match_type = self._enum_value(
+                keyword_match_type.KeywordMatchTypeEnum.KeywordMatchType,
+                default_match_type.upper(),
+                "negative keyword match type",
+            )
             for keyword_text in keywords:
                 criterion = self.client.get_type("SharedCriterion")
                 criterion.shared_set = shared_set_resource
                 criterion.keyword = KeywordInfo(
                     text=keyword_text,
-                    match_type=keyword_match_type.KeywordMatchTypeEnum.KeywordMatchType.BROAD,
+                    match_type=resolved_match_type,
                 )
                 op = self.client.get_type("SharedCriterionOperation")
                 op.create = criterion
@@ -1104,6 +1679,95 @@ class GoogleAdsMCPClient:
                     self._resource_summary(result.resource_name, name=keywords[index])
                     for index, result in enumerate(response.results)
                 ],
+            )
+        except GoogleAdsException as ex:
+            _raise_google_ads_error(ex)
+
+    def get_account_negative_keyword_list(self) -> AccountNegativeKeywordListResult:
+        try:
+            shared_set, customer_negative_criterion = self._account_negative_keyword_list_state()
+            return AccountNegativeKeywordListResult(
+                shared_set=shared_set,
+                customer_negative_criterion=customer_negative_criterion,
+            )
+        except GoogleAdsException as ex:
+            _raise_google_ads_error(ex)
+
+    def apply_shared_negative_keyword_list_to_account(
+        self,
+        shared_set: str,
+        *,
+        replace_existing: bool = False,
+    ) -> AccountNegativeKeywordListResult:
+        try:
+            shared_set_resource = self._shared_set_resource(shared_set)
+            shared_set_row = self._shared_set_details(shared_set_resource)
+            if shared_set_row.type.name != "ACCOUNT_LEVEL_NEGATIVE_KEYWORDS":
+                raise ValueError(
+                    "Account-level attachments require an account-level negative keyword shared set "
+                    "(create_shared_negative_keyword_list(..., scope='ACCOUNT'))."
+                )
+            current_shared_set, current_customer_negative_criterion = self._account_negative_keyword_list_state()
+            removed: list[str] = []
+
+            if current_shared_set and current_customer_negative_criterion:
+                if current_shared_set.resource_name == shared_set_resource:
+                    return AccountNegativeKeywordListResult(
+                        shared_set=current_shared_set,
+                        customer_negative_criterion=current_customer_negative_criterion,
+                    )
+                if not replace_existing:
+                    raise ValueError(
+                        "An account-level negative keyword list is already attached. "
+                        "Set replace_existing=True to replace it."
+                    )
+
+                remove_op = self.client.get_type("CustomerNegativeCriterionOperation")
+                remove_op.remove = current_customer_negative_criterion.resource_name
+                self._mutate(
+                    "CustomerNegativeCriterionService",
+                    "MutateCustomerNegativeCriteriaRequest",
+                    "mutate_customer_negative_criteria",
+                    [remove_op],
+                )
+                removed.append(current_customer_negative_criterion.resource_name)
+
+            criterion = self.client.get_type("CustomerNegativeCriterion")
+            criterion.negative_keyword_list = NegativeKeywordListInfo(shared_set=shared_set_resource)
+            op = self.client.get_type("CustomerNegativeCriterionOperation")
+            op.create = criterion
+            response = self._mutate(
+                "CustomerNegativeCriterionService",
+                "MutateCustomerNegativeCriteriaRequest",
+                "mutate_customer_negative_criteria",
+                [op],
+            )
+
+            return AccountNegativeKeywordListResult(
+                shared_set=self._shared_set_summary(shared_set_resource),
+                customer_negative_criterion=self._resource_summary(response.results[0].resource_name),
+                removed=removed,
+            )
+        except GoogleAdsException as ex:
+            _raise_google_ads_error(ex)
+
+    def remove_shared_negative_keyword_list_from_account(self) -> AccountNegativeKeywordListResult:
+        try:
+            shared_set, customer_negative_criterion = self._account_negative_keyword_list_state()
+            if not customer_negative_criterion:
+                return AccountNegativeKeywordListResult()
+
+            op = self.client.get_type("CustomerNegativeCriterionOperation")
+            op.remove = customer_negative_criterion.resource_name
+            self._mutate(
+                "CustomerNegativeCriterionService",
+                "MutateCustomerNegativeCriteriaRequest",
+                "mutate_customer_negative_criteria",
+                [op],
+            )
+            return AccountNegativeKeywordListResult(
+                shared_set=shared_set,
+                removed=[customer_negative_criterion.resource_name],
             )
         except GoogleAdsException as ex:
             _raise_google_ads_error(ex)
@@ -1140,6 +1804,12 @@ class GoogleAdsMCPClient:
     ) -> SharedNegativeListMutationResult:
         try:
             shared_set_resource = self._shared_set_resource(shared_set)
+            shared_set_row = self._shared_set_details(shared_set_resource)
+            if shared_set_row.type.name != "NEGATIVE_KEYWORDS":
+                raise ValueError(
+                    "Campaign attachments require a campaign-level shared negative keyword list "
+                    "(create_shared_negative_keyword_list(..., scope='CAMPAIGN'))."
+                )
             operations: list[Any] = []
             for campaign in campaigns:
                 relation = self.client.get_type("CampaignSharedSet")

@@ -10,7 +10,7 @@ This server runs over stdio and is intended to be launched by an MCP client such
 - Forecasting for keyword sets
 - Search campaign creation and updates
 - Ad group and keyword management
-- Shared negative keyword list management
+- Negative keyword management at the campaign, ad group, shared-list, and account levels
 - Responsive search ad creation and replacement-style updates
 - Search term and performance reporting
 
@@ -211,20 +211,33 @@ File summary:
 - `set_campaign_geo_targets`
 - `set_campaign_ad_schedule`
 - `set_campaign_device_bid_adjustments`
+- `list_negative_keywords_in_campaign`
+- `add_negative_keywords_to_campaign`
+- `update_negative_keywords_in_campaign`
+- `remove_negative_keywords_from_campaign`
 - `create_ad_group`
 - `update_ad_group`
 - `add_keywords_to_ad_group`
 - `update_keywords`
 - `remove_keywords`
+- `list_negative_keywords_in_ad_group`
+- `add_negative_keywords_to_ad_group`
+- `update_negative_keywords_in_ad_group`
+- `remove_negative_keywords_from_ad_group`
 
 ### Shared Negative Lists
 
 - `create_shared_negative_keyword_list`
 - `update_shared_negative_keyword_list`
+- `list_shared_negative_keyword_lists`
+- `list_keywords_in_shared_negative_list`
 - `add_keywords_to_shared_negative_list`
 - `remove_keywords_from_shared_negative_list`
 - `apply_shared_negative_keyword_list_to_campaigns`
 - `remove_shared_negative_keyword_list_from_campaigns`
+- `get_account_negative_keyword_list`
+- `apply_shared_negative_keyword_list_to_account`
+- `remove_shared_negative_keyword_list_from_account`
 
 ### Ads
 

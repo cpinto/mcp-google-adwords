@@ -31,6 +31,7 @@ from .models import (
     AdMutationResult,
     AdGroupMutationResult,
     AdScheduleEntryInput,
+    AccountNegativeKeywordListResult,
     BiddingStrategyInput,
     CallAssetInput,
     CalloutAssetInput,
@@ -43,9 +44,14 @@ from .models import (
     KeywordInput,
     KeywordMutationResult,
     KeywordUpdateInput,
+    NegativeKeywordInput,
+    NegativeKeywordListResult,
+    NegativeKeywordMutationResult,
+    NegativeKeywordUpdateInput,
     NetworkSettingsInput,
     ResponsiveSearchAdInput,
     SharedNegativeListMutationResult,
+    SharedNegativeKeywordListsResult,
     SitelinkAssetInput,
     StructuredSnippetAssetInput,
     TargetingMutationResult,
@@ -411,6 +417,52 @@ async def set_campaign_device_bid_adjustments(
 
 
 @mcp.tool(structured_output=True)
+async def list_negative_keywords_in_campaign(
+    ctx: Context,
+    campaign: str,
+) -> NegativeKeywordListResult:
+    client = _client_from_context(ctx)
+    return await anyio.to_thread.run_sync(lambda: client.list_negative_keywords_in_campaign(campaign))
+
+
+@mcp.tool(structured_output=True)
+async def add_negative_keywords_to_campaign(
+    ctx: Context,
+    campaign: str,
+    keywords: list[NegativeKeywordInput],
+    default_match_type: str = "BROAD",
+) -> NegativeKeywordMutationResult:
+    client = _client_from_context(ctx)
+    return await anyio.to_thread.run_sync(
+        lambda: client.add_negative_keywords_to_campaign(
+            campaign=campaign,
+            keywords=keywords,
+            default_match_type=default_match_type,
+        )
+    )
+
+
+@mcp.tool(structured_output=True)
+async def update_negative_keywords_in_campaign(
+    ctx: Context,
+    updates: list[NegativeKeywordUpdateInput],
+) -> NegativeKeywordMutationResult:
+    client = _client_from_context(ctx)
+    return await anyio.to_thread.run_sync(lambda: client.update_negative_keywords_in_campaign(updates))
+
+
+@mcp.tool(structured_output=True)
+async def remove_negative_keywords_from_campaign(
+    ctx: Context,
+    negative_keyword_criteria: list[str],
+) -> NegativeKeywordMutationResult:
+    client = _client_from_context(ctx)
+    return await anyio.to_thread.run_sync(
+        lambda: client.remove_negative_keywords_from_campaign(negative_keyword_criteria)
+    )
+
+
+@mcp.tool(structured_output=True)
 async def create_ad_group(
     ctx: Context,
     campaign: str,
@@ -484,12 +536,61 @@ async def remove_keywords(
 
 
 @mcp.tool(structured_output=True)
+async def list_negative_keywords_in_ad_group(
+    ctx: Context,
+    ad_group: str,
+) -> NegativeKeywordListResult:
+    client = _client_from_context(ctx)
+    return await anyio.to_thread.run_sync(lambda: client.list_negative_keywords_in_ad_group(ad_group))
+
+
+@mcp.tool(structured_output=True)
+async def add_negative_keywords_to_ad_group(
+    ctx: Context,
+    ad_group: str,
+    keywords: list[NegativeKeywordInput],
+    default_match_type: str = "BROAD",
+) -> NegativeKeywordMutationResult:
+    client = _client_from_context(ctx)
+    return await anyio.to_thread.run_sync(
+        lambda: client.add_negative_keywords_to_ad_group(
+            ad_group=ad_group,
+            keywords=keywords,
+            default_match_type=default_match_type,
+        )
+    )
+
+
+@mcp.tool(structured_output=True)
+async def update_negative_keywords_in_ad_group(
+    ctx: Context,
+    updates: list[NegativeKeywordUpdateInput],
+) -> NegativeKeywordMutationResult:
+    client = _client_from_context(ctx)
+    return await anyio.to_thread.run_sync(lambda: client.update_negative_keywords_in_ad_group(updates))
+
+
+@mcp.tool(structured_output=True)
+async def remove_negative_keywords_from_ad_group(
+    ctx: Context,
+    negative_keyword_criteria: list[str],
+) -> NegativeKeywordMutationResult:
+    client = _client_from_context(ctx)
+    return await anyio.to_thread.run_sync(
+        lambda: client.remove_negative_keywords_from_ad_group(negative_keyword_criteria)
+    )
+
+
+@mcp.tool(structured_output=True)
 async def create_shared_negative_keyword_list(
     ctx: Context,
     name: str,
+    scope: str = "CAMPAIGN",
 ) -> SharedNegativeListMutationResult:
     client = _client_from_context(ctx)
-    return await anyio.to_thread.run_sync(lambda: client.create_shared_negative_keyword_list(name))
+    return await anyio.to_thread.run_sync(
+        lambda: client.create_shared_negative_keyword_list(name, scope=scope)
+    )
 
 
 @mcp.tool(structured_output=True)
@@ -505,14 +606,36 @@ async def update_shared_negative_keyword_list(
 
 
 @mcp.tool(structured_output=True)
+async def list_shared_negative_keyword_lists(
+    ctx: Context,
+) -> SharedNegativeKeywordListsResult:
+    client = _client_from_context(ctx)
+    return await anyio.to_thread.run_sync(client.list_shared_negative_keyword_lists)
+
+
+@mcp.tool(structured_output=True)
+async def list_keywords_in_shared_negative_list(
+    ctx: Context,
+    shared_set: str,
+) -> NegativeKeywordListResult:
+    client = _client_from_context(ctx)
+    return await anyio.to_thread.run_sync(lambda: client.list_keywords_in_shared_negative_list(shared_set))
+
+
+@mcp.tool(structured_output=True)
 async def add_keywords_to_shared_negative_list(
     ctx: Context,
     shared_set: str,
     keywords: list[str],
+    default_match_type: str = "BROAD",
 ) -> SharedNegativeListMutationResult:
     client = _client_from_context(ctx)
     return await anyio.to_thread.run_sync(
-        lambda: client.add_keywords_to_shared_negative_list(shared_set=shared_set, keywords=keywords)
+        lambda: client.add_keywords_to_shared_negative_list(
+            shared_set=shared_set,
+            keywords=keywords,
+            default_match_type=default_match_type,
+        )
     )
 
 
@@ -555,6 +678,37 @@ async def remove_shared_negative_keyword_list_from_campaigns(
             campaigns=campaigns,
         )
     )
+
+
+@mcp.tool(structured_output=True)
+async def get_account_negative_keyword_list(
+    ctx: Context,
+) -> AccountNegativeKeywordListResult:
+    client = _client_from_context(ctx)
+    return await anyio.to_thread.run_sync(client.get_account_negative_keyword_list)
+
+
+@mcp.tool(structured_output=True)
+async def apply_shared_negative_keyword_list_to_account(
+    ctx: Context,
+    shared_set: str,
+    replace_existing: bool = False,
+) -> AccountNegativeKeywordListResult:
+    client = _client_from_context(ctx)
+    return await anyio.to_thread.run_sync(
+        lambda: client.apply_shared_negative_keyword_list_to_account(
+            shared_set=shared_set,
+            replace_existing=replace_existing,
+        )
+    )
+
+
+@mcp.tool(structured_output=True)
+async def remove_shared_negative_keyword_list_from_account(
+    ctx: Context,
+) -> AccountNegativeKeywordListResult:
+    client = _client_from_context(ctx)
+    return await anyio.to_thread.run_sync(client.remove_shared_negative_keyword_list_from_account)
 
 
 @mcp.tool(structured_output=True)
