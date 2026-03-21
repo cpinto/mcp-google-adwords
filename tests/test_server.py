@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
+import google_ads_mcp.server as server_module
+from google_ads_mcp.config import GoogleAdsConfig
 from google_ads_mcp.server import mcp
 
 
@@ -15,6 +19,8 @@ class ServerToolRegistrationTests(unittest.TestCase):
         names = {tool.name for tool in tools}
 
         self.assertIn("create_search_campaign", names)
+        self.assertIn("authorize", names)
+        self.assertIn("reauthorize", names)
         self.assertIn("list_negative_keywords_in_campaign", names)
         self.assertIn("add_negative_keywords_to_campaign", names)
         self.assertIn("update_negative_keywords_in_campaign", names)
@@ -52,6 +58,74 @@ class ServerToolRegistrationTests(unittest.TestCase):
         self.assertEqual(apply_account_list_tool.outputSchema["title"], "AccountNegativeKeywordListResult")
         self.assertIn("shared_set", apply_account_list_tool.outputSchema["properties"])
         self.assertEqual(performance_tool.outputSchema["properties"]["result"]["type"], "string")
+
+
+class ServerAuthFlowTests(unittest.TestCase):
+    def _oauth_context(self, refresh_token: str | None = None, cached_client: object | None = None):
+        config = GoogleAdsConfig(
+            developer_token="dev",
+            client_id="client",
+            client_secret="secret",
+            refresh_token=refresh_token,
+            customer_id="1234567890",
+        )
+        return SimpleNamespace(
+            request_context=SimpleNamespace(
+                lifespan_context={
+                    "config": config,
+                    "client": cached_client,
+                    "env_path": "/tmp/google-ads.env",
+                }
+            )
+        )
+
+    def test_check_auth_status_reports_authorization_required_when_refresh_token_missing(self):
+        result = asyncio.run(server_module.check_auth_status(self._oauth_context()))
+
+        self.assertIn("Authorization required", result)
+        self.assertIn("authorize", result)
+
+    def test_authorize_saves_refresh_token_and_clears_cached_client(self):
+        ctx = self._oauth_context(cached_client=object())
+
+        with (
+            patch(
+                "google_ads_mcp.server.anyio.to_thread.run_sync",
+                new=AsyncMock(return_value={"refresh_token": "new-refresh-token"}),
+            ),
+            patch("google_ads_mcp.server.set_key") as set_key,
+        ):
+            result = asyncio.run(server_module.authorize(ctx))
+
+        self.assertIn("Authorization successful", result)
+        self.assertEqual(
+            ctx.request_context.lifespan_context["config"].refresh_token,
+            "new-refresh-token",
+        )
+        self.assertIsNone(ctx.request_context.lifespan_context["client"])
+        set_key.assert_called_once_with(
+            "/tmp/google-ads.env",
+            "GOOGLE_ADS_REFRESH_TOKEN",
+            "new-refresh-token",
+        )
+
+    def test_reauthorize_remains_available_as_alias(self):
+        ctx = self._oauth_context(refresh_token="old-refresh-token")
+
+        with (
+            patch(
+                "google_ads_mcp.server.anyio.to_thread.run_sync",
+                new=AsyncMock(return_value={"refresh_token": "replacement-token"}),
+            ),
+            patch("google_ads_mcp.server.set_key"),
+        ):
+            result = asyncio.run(server_module.reauthorize(ctx))
+
+        self.assertIn("Reauthorization successful", result)
+        self.assertEqual(
+            ctx.request_context.lifespan_context["config"].refresh_token,
+            "replacement-token",
+        )
 
 
 if __name__ == "__main__":

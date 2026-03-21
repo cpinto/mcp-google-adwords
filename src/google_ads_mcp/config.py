@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
 
-_OAUTH_VARS = [
+_OAUTH_SETUP_VARS = [
     "GOOGLE_ADS_CLIENT_ID",
     "GOOGLE_ADS_CLIENT_SECRET",
-    "GOOGLE_ADS_REFRESH_TOKEN",
 ]
 
 
@@ -31,6 +30,10 @@ class GoogleAdsConfig:
     @property
     def auth_type(self) -> str:
         return "service_account" if self.service_account_path else "oauth"
+
+    @property
+    def has_refresh_token(self) -> bool:
+        return bool(self.refresh_token)
 
     @classmethod
     def from_env(cls) -> GoogleAdsConfig:
@@ -68,19 +71,19 @@ class GoogleAdsConfig:
             )
 
         # Fall back to OAuth
-        missing = [v for v in _OAUTH_VARS if not os.getenv(v)]
+        missing = [v for v in _OAUTH_SETUP_VARS if not os.getenv(v)]
         if missing:
             raise ValueError(
                 f"Missing required environment variables: {', '.join(missing)}. "
-                "Provide these for OAuth, or place a service_account.json in the "
-                "project directory."
+                "Provide these for OAuth, then use the authorize flow to obtain a "
+                "refresh token, or place a service_account.json in the project directory."
             )
 
         return cls(
             developer_token=developer_token,
             client_id=os.environ["GOOGLE_ADS_CLIENT_ID"],
             client_secret=os.environ["GOOGLE_ADS_CLIENT_SECRET"],
-            refresh_token=os.environ["GOOGLE_ADS_REFRESH_TOKEN"],
+            refresh_token=os.getenv("GOOGLE_ADS_REFRESH_TOKEN") or None,
             customer_id=customer_id.replace("-", ""),
             login_customer_id=login_customer_id,
         )
@@ -99,9 +102,10 @@ class GoogleAdsConfig:
                 "developer_token": self.developer_token,
                 "client_id": self.client_id,
                 "client_secret": self.client_secret,
-                "refresh_token": self.refresh_token,
                 "use_proto_plus": True,
             }
+            if self.refresh_token:
+                d["refresh_token"] = self.refresh_token
         if self.login_customer_id:
             d["login_customer_id"] = self.login_customer_id
         return d

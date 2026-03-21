@@ -64,9 +64,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+AUTH_REQUIRED_MSG = (
+    "**Authorization required.** No Google Ads OAuth refresh token is configured.\n\n"
+    "Call the `authorize` tool to complete the browser-based OAuth flow."
+)
 AUTH_EXPIRED_MSG = (
     "**Authentication expired.** Your Google Ads OAuth refresh token is invalid or revoked.\n\n"
-    "Call the `reauthorize` tool to re-authenticate."
+    "Call the `authorize` tool to re-authenticate."
 )
 _TOKEN_URL = "https://oauth2.googleapis.com/token"
 _GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -116,6 +120,9 @@ def _client_from_context(ctx: Context) -> GoogleAdsMCPClient:
         return client
 
     config = lifespan_ctx["config"]
+    if config.auth_type == "oauth" and not config.has_refresh_token:
+        raise RuntimeError(AUTH_REQUIRED_MSG)
+
     new_client = GoogleAdsMCPClient(config)
 
     # Verify credentials with a lightweight API call
@@ -130,6 +137,24 @@ def _client_from_context(ctx: Context) -> GoogleAdsMCPClient:
     lifespan_ctx["client"] = new_client
     logger.info("Google Ads client initialized (customer_id=%s)", config.customer_id)
     return new_client
+
+
+def _service_account_auth_message() -> str:
+    return (
+        "**Not needed.** This server is using service account authentication, "
+        "which does not require browser-based OAuth. If you are seeing auth errors, "
+        "check that the service account has the correct permissions."
+    )
+
+
+def _persist_refresh_token(lifespan_ctx: dict, refresh_token: str) -> None:
+    env_path = lifespan_ctx["env_path"]
+    set_key(env_path, "GOOGLE_ADS_REFRESH_TOKEN", refresh_token)
+    logger.info("Refresh token updated in %s", env_path)
+
+    config = lifespan_ctx["config"]
+    config.refresh_token = refresh_token
+    lifespan_ctx["client"] = None
 
 
 def _run_oauth_flow(client_id: str, client_secret: str) -> dict:
@@ -210,6 +235,8 @@ async def check_auth_status(ctx: Context) -> str:
     """Check whether the current Google Ads credentials are valid."""
     config = ctx.request_context.lifespan_context["config"]
     auth_type = config.auth_type
+    if auth_type == "oauth" and not config.has_refresh_token:
+        return AUTH_REQUIRED_MSG
     try:
         _client_from_context(ctx)
         return f"**Authenticated** (via {auth_type}). Google Ads credentials are valid."
@@ -218,22 +245,38 @@ async def check_auth_status(ctx: Context) -> str:
 
 
 @mcp.tool()
-async def reauthorize(ctx: Context) -> str:
-    """Re-authenticate with Google Ads by completing an OAuth flow in the browser.
+async def authorize(ctx: Context) -> str:
+    """Complete the browser-based OAuth flow and save a Google Ads refresh token.
 
-    Use this when other tools report that the authentication token has expired.
-    A browser window will open for you to authorize access. The token is saved
-    automatically so subsequent tool calls and server restarts will use it.
+    Use this for first-time OAuth setup or when an existing refresh token has
+    expired or been revoked. A browser window will open for you to authorize
+    access. The token is saved automatically so subsequent tool calls and server
+    restarts will use it.
     """
     lifespan_ctx = ctx.request_context.lifespan_context
     config = lifespan_ctx["config"]
 
     if config.auth_type == "service_account":
-        return (
-            "**Not needed.** This server is using service account authentication, "
-            "which does not require token refresh. If you are seeing auth errors, "
-            "check that the service account has the correct permissions."
-        )
+        return _service_account_auth_message()
+
+    result = await anyio.to_thread.run_sync(
+        lambda: _run_oauth_flow(config.client_id, config.client_secret)
+    )
+
+    if "error" in result:
+        return f"**Authorization failed:** {result['error']}"
+
+    _persist_refresh_token(lifespan_ctx, result["refresh_token"])
+
+    return "**Authorization successful!** The refresh token has been saved.\n\nYou can now use Google Ads tools."
+
+
+@mcp.tool()
+async def reauthorize(ctx: Context) -> str:
+    """Compatibility alias for `authorize` when an OAuth token has expired."""
+    config = ctx.request_context.lifespan_context["config"]
+    if config.auth_type == "service_account":
+        return _service_account_auth_message()
 
     result = await anyio.to_thread.run_sync(
         lambda: _run_oauth_flow(config.client_id, config.client_secret)
@@ -242,21 +285,9 @@ async def reauthorize(ctx: Context) -> str:
     if "error" in result:
         return f"**Reauthorization failed:** {result['error']}"
 
-    new_token = result["refresh_token"]
+    _persist_refresh_token(ctx.request_context.lifespan_context, result["refresh_token"])
 
-    # Persist to .env file
-    env_path = lifespan_ctx["env_path"]
-    set_key(env_path, "GOOGLE_ADS_REFRESH_TOKEN", new_token)
-    logger.info("Refresh token updated in %s", env_path)
-
-    # Update in-memory config and reset cached client
-    config.refresh_token = new_token
-    lifespan_ctx["client"] = None
-
-    return (
-        "**Reauthorization successful!** The refresh token has been updated.\n\n"
-        "You can now use Google Ads tools."
-    )
+    return "**Reauthorization successful!** The refresh token has been saved.\n\nYou can now use Google Ads tools."
 
 
 @mcp.tool()

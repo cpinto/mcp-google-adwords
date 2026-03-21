@@ -21,7 +21,7 @@ Mutation tools return structured results. Reporting tools return markdown tables
 - Python `>=3.11`
 - `uv`
 - A Google Ads API-enabled Google Cloud project
-- Google Ads API credentials and a refresh token
+- Google Ads API credentials
 - A Google Ads customer ID
 - Optional MCC login customer ID
 
@@ -33,6 +33,7 @@ Copy `.env.example` to `.env` and fill in:
 GOOGLE_ADS_DEVELOPER_TOKEN=
 GOOGLE_ADS_CLIENT_ID=
 GOOGLE_ADS_CLIENT_SECRET=
+# Optional at startup if you will use the `authorize` MCP tool
 GOOGLE_ADS_REFRESH_TOKEN=
 GOOGLE_ADS_CUSTOMER_ID=
 # GOOGLE_ADS_LOGIN_CUSTOMER_ID=
@@ -40,13 +41,16 @@ GOOGLE_ADS_CUSTOMER_ID=
 
 ## How To Obtain The Tokens
 
-You need five values before the server can talk to Google Ads:
+You need four values to boot the server in OAuth mode, and a fifth once you complete authorization:
 
 - `GOOGLE_ADS_DEVELOPER_TOKEN`
 - `GOOGLE_ADS_CLIENT_ID`
 - `GOOGLE_ADS_CLIENT_SECRET`
-- `GOOGLE_ADS_REFRESH_TOKEN`
 - `GOOGLE_ADS_CUSTOMER_ID`
+
+After first-time authorization, you will also have:
+
+- `GOOGLE_ADS_REFRESH_TOKEN`
 
 Optional:
 
@@ -78,25 +82,27 @@ Use those values for:
 - `GOOGLE_ADS_CLIENT_ID`
 - `GOOGLE_ADS_CLIENT_SECRET`
 
-### 3. Generate A Refresh Token
+### 3. Complete OAuth Authorization
 
-This repo includes a helper script:
+For OAuth, the server can now start with just:
 
-```bash
-uv run python get_refresh_token.py
+- `GOOGLE_ADS_CLIENT_ID`
+- `GOOGLE_ADS_CLIENT_SECRET`
+- `GOOGLE_ADS_DEVELOPER_TOKEN`
+- `GOOGLE_ADS_CUSTOMER_ID`
+
+Once the MCP server is running, call:
+
+```text
+authorize
 ```
 
-The script will:
+That tool will:
 
-1. prompt for your OAuth client ID
-2. prompt for your OAuth client secret
-3. open or print a Google authorization URL
-4. ask you to paste back the authorization code
-5. output a refresh token
-
-Put the resulting value in:
-
-- `GOOGLE_ADS_REFRESH_TOKEN`
+1. open a Google authorization URL in your browser
+2. complete the local callback flow
+3. save `GOOGLE_ADS_REFRESH_TOKEN` into your `.env`
+4. make future MCP runs use the saved token automatically
 
 ### 4. Find The Customer IDs
 
@@ -111,6 +117,7 @@ You can copy these from the Google Ads UI. The server accepts IDs with or withou
 GOOGLE_ADS_DEVELOPER_TOKEN=your-developer-token
 GOOGLE_ADS_CLIENT_ID=your-oauth-client-id
 GOOGLE_ADS_CLIENT_SECRET=your-oauth-client-secret
+# Optional until you run the `authorize` tool
 GOOGLE_ADS_REFRESH_TOKEN=your-refresh-token
 GOOGLE_ADS_CUSTOMER_ID=1234567890
 GOOGLE_ADS_LOGIN_CUSTOMER_ID=0987654321
@@ -128,11 +135,7 @@ Run locally:
 uv run google-ads-mcp
 ```
 
-If you still need a refresh token, use:
-
-```bash
-uv run python get_refresh_token.py
-```
+If you are using OAuth and have not authorized yet, start the MCP server and call `authorize`.
 
 ## Claude Cowork / MCP Client Setup
 
@@ -171,7 +174,6 @@ Notes:
 ```text
 .
 ├── .env.example
-├── get_refresh_token.py
 ├── pyproject.toml
 ├── README.md
 ├── src/google_ads_mcp/
@@ -194,9 +196,16 @@ File summary:
 - `src/google_ads_mcp/formatters.py`: markdown formatting for report tools
 - `src/google_ads_mcp/config.py`: environment loading and validation
 - `tests/test_client.py`: request-construction and client behavior tests
+- `tests/test_config.py`: environment-loading and OAuth bootstrap tests
 - `tests/test_server.py`: MCP tool registration and output-shape tests
 
 ## Tools
+
+### Authentication
+
+- `check_auth_status`
+- `authorize`
+- `reauthorize`
 
 ### Keyword Planning
 
