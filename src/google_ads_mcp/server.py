@@ -832,6 +832,7 @@ async def update_conversion_action(
 async def get_search_term_report(
     ctx: Context,
     campaign: str | None = None,
+    ad_group: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
     limit: int = 50,
@@ -840,6 +841,7 @@ async def get_search_term_report(
     rows = await anyio.to_thread.run_sync(
         lambda: client.get_search_term_report(
             campaign=campaign,
+            ad_group=ad_group,
             start_date=start_date,
             end_date=end_date,
             limit=limit,

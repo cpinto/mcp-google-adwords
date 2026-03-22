@@ -318,6 +318,7 @@ class GoogleAdsClientTests(unittest.TestCase):
                     campaign=SimpleNamespace(id=222, name="Brand Search"),
                     ad_group=SimpleNamespace(id=555, name="Core Terms"),
                     ad_group_criterion=SimpleNamespace(
+                        resource_name="customers/1234567890/adGroupCriteria/555~999",
                         criterion_id=999,
                         keyword=SimpleNamespace(text="crm software", match_type=SimpleNamespace(name="PHRASE")),
                         status=SimpleNamespace(name="ENABLED"),
@@ -337,10 +338,48 @@ class GoogleAdsClientTests(unittest.TestCase):
 
         client = make_client(FakeGoogleAdsClient({"GoogleAdsService": google_ads_service_fake}))
         rows = client.get_performance_report(level="keyword")
+        request = google_ads_service_fake.calls[0][1]
 
         self.assertEqual(rows[0]["keyword"], "crm software")
         self.assertEqual(rows[0]["match_type"], "PHRASE")
         self.assertEqual(rows[0]["bid_micros"], 2_100_000)
+        self.assertEqual(rows[0]["criterion_id"], "999")
+        self.assertEqual(rows[0]["resource_name"], "customers/1234567890/adGroupCriteria/555~999")
+        self.assertIn("ad_group_criterion.resource_name", request.query)
+
+    def test_get_search_term_report_filters_by_ad_group_and_returns_keyword_context(self):
+        google_ads_service_fake = FakeService()
+        google_ads_service_fake.queue(
+            "search",
+            [
+                SimpleNamespace(
+                    search_term_view=SimpleNamespace(search_term="crm software for startups"),
+                    campaign=SimpleNamespace(id=222, name="Brand Search"),
+                    ad_group=SimpleNamespace(id=555, name="Core Terms"),
+                    segments=SimpleNamespace(keyword=SimpleNamespace(info=SimpleNamespace(text="crm software"))),
+                    metrics=SimpleNamespace(
+                        clicks=12,
+                        impressions=100,
+                        ctr=0.12,
+                        average_cpc=1_950_000,
+                        cost_micros=23_400_000,
+                        conversions=2.5,
+                    ),
+                )
+            ],
+        )
+
+        client = make_client(FakeGoogleAdsClient({"GoogleAdsService": google_ads_service_fake}))
+        rows = client.get_search_term_report(campaign="222", ad_group="555")
+        request = google_ads_service_fake.calls[0][1]
+
+        self.assertEqual(rows[0]["search_term"], "crm software for startups")
+        self.assertEqual(rows[0]["campaign_name"], "Brand Search")
+        self.assertEqual(rows[0]["ad_group_name"], "Core Terms")
+        self.assertEqual(rows[0]["keyword"], "crm software")
+        self.assertIn("FROM search_term_view", request.query)
+        self.assertIn("ad_group.resource_name = 'customers/1234567890/adGroups/555'", request.query)
+        self.assertIn("segments.keyword.info.text", request.query)
 
     def test_set_campaign_device_bid_adjustments_updates_existing_device_criteria(self):
         campaign_criterion_service_fake = FakeService()

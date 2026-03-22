@@ -2268,6 +2268,7 @@ class GoogleAdsMCPClient:
         self,
         *,
         campaign: str | None = None,
+        ad_group: str | None = None,
         start_date: str | None = None,
         end_date: str | None = None,
         limit: int = 50,
@@ -2276,31 +2277,40 @@ class GoogleAdsMCPClient:
         where_clauses = [f"segments.date BETWEEN {self._quote(start_date)} AND {self._quote(end_date)}"]
         if campaign:
             where_clauses.append(f"campaign.resource_name = {self._quote(self._campaign_resource(campaign))}")
+        if ad_group:
+            where_clauses.append(f"ad_group.resource_name = {self._quote(self._ad_group_resource(ad_group))}")
 
         query = (
-            "SELECT campaign_search_term_view.search_term, "
-            "campaign.id, campaign.name, metrics.clicks, metrics.impressions, metrics.ctr, "
+            "SELECT search_term_view.search_term, "
+            "campaign.id, campaign.name, ad_group.id, ad_group.name, "
+            "segments.keyword.info.text, metrics.clicks, metrics.impressions, metrics.ctr, "
             "metrics.average_cpc, metrics.cost_micros, metrics.conversions "
-            "FROM campaign_search_term_view "
+            "FROM search_term_view "
             f"WHERE {' AND '.join(where_clauses)} "
             "ORDER BY metrics.impressions DESC "
             f"LIMIT {limit}"
         )
         rows = self._search(query)
-        return [
-            {
-                "search_term": row.campaign_search_term_view.search_term,
-                "campaign_id": str(row.campaign.id),
-                "campaign_name": row.campaign.name,
-                "clicks": row.metrics.clicks,
-                "impressions": row.metrics.impressions,
-                "ctr": row.metrics.ctr,
-                "average_cpc_micros": row.metrics.average_cpc,
-                "cost_micros": row.metrics.cost_micros,
-                "conversions": row.metrics.conversions,
-            }
-            for row in rows
-        ]
+        report_rows: list[dict[str, Any]] = []
+        for row in rows:
+            keyword_info = getattr(getattr(row.segments, "keyword", None), "info", None)
+            report_rows.append(
+                {
+                    "search_term": row.search_term_view.search_term,
+                    "campaign_id": str(row.campaign.id),
+                    "campaign_name": row.campaign.name,
+                    "ad_group_id": str(row.ad_group.id),
+                    "ad_group_name": row.ad_group.name,
+                    "keyword": getattr(keyword_info, "text", None),
+                    "clicks": row.metrics.clicks,
+                    "impressions": row.metrics.impressions,
+                    "ctr": row.metrics.ctr,
+                    "average_cpc_micros": row.metrics.average_cpc,
+                    "cost_micros": row.metrics.cost_micros,
+                    "conversions": row.metrics.conversions,
+                }
+            )
+        return report_rows
 
     def get_performance_report(
         self,
@@ -2379,7 +2389,8 @@ class GoogleAdsMCPClient:
 
         query = (
             "SELECT campaign.id, campaign.name, ad_group.id, ad_group.name, "
-            "ad_group_criterion.criterion_id, ad_group_criterion.keyword.text, "
+            "ad_group_criterion.resource_name, ad_group_criterion.criterion_id, "
+            "ad_group_criterion.keyword.text, "
             "ad_group_criterion.keyword.match_type, ad_group_criterion.status, "
             "ad_group_criterion.cpc_bid_micros, metrics.clicks, metrics.impressions, "
             "metrics.ctr, metrics.average_cpc, metrics.cost_micros, metrics.conversions "
@@ -2396,6 +2407,8 @@ class GoogleAdsMCPClient:
                 "campaign_name": row.campaign.name,
                 "ad_group_id": str(row.ad_group.id),
                 "ad_group_name": row.ad_group.name,
+                "resource_name": row.ad_group_criterion.resource_name,
+                "criterion_id": str(row.ad_group_criterion.criterion_id),
                 "id": str(row.ad_group_criterion.criterion_id),
                 "keyword": row.ad_group_criterion.keyword.text,
                 "match_type": getattr(

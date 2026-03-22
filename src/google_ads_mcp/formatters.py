@@ -135,14 +135,16 @@ def format_search_term_report(rows: list[dict]) -> str:
 
     lines = [
         f"**Search term report ({len(rows)} rows)**\n",
-        "| Search Term | Campaign | Impressions | Clicks | CTR | Avg CPC | Cost | Conversions |",
-        "|-------------|----------|-------------|--------|-----|---------|------|-------------|",
+        "| Search Term | Campaign | Ad Group | Keyword | Impressions | Clicks | CTR | Avg CPC | Cost | Conversions |",
+        "|-------------|----------|----------|---------|-------------|--------|-----|---------|------|-------------|",
     ]
 
     for row in rows:
         lines.append(
             f"| {row['search_term']} "
             f"| {row['campaign_name']} "
+            f"| {row.get('ad_group_name') or '-'} "
+            f"| {row.get('keyword') or '-'} "
             f"| {format_number(row['impressions'])} "
             f"| {format_number(row['clicks'])} "
             f"| {format_percent(row['ctr'])} "
@@ -199,13 +201,15 @@ def format_performance_report(rows: list[dict], level: str) -> str:
 
     lines = [
         f"**Keyword performance ({len(rows)} rows)**\n",
-        "| Campaign | Ad Group | Keyword | Match Type | Status | Bid | Impressions | Clicks | CTR | Avg CPC | Cost | Conversions |",
-        "|----------|----------|---------|------------|--------|-----|-------------|--------|-----|---------|------|-------------|",
+        "| Campaign | Ad Group | Criterion ID | Resource Name | Keyword | Match Type | Status | Bid | Impressions | Clicks | CTR | Avg CPC | Cost | Conversions |",
+        "|----------|----------|--------------|---------------|---------|------------|--------|-----|-------------|--------|-----|---------|------|-------------|",
     ]
     for row in rows:
         lines.append(
             f"| {row['campaign_name']} "
             f"| {row['ad_group_name']} "
+            f"| {row.get('criterion_id', row.get('id', ''))} "
+            f"| {row.get('resource_name', '-')} "
             f"| {row['keyword']} "
             f"| {row['match_type']} "
             f"| {row['status']} "
